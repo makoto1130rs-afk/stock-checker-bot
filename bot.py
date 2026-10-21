@@ -1,9 +1,9 @@
 import os
-import requests
-import pandas as pd
+import discord
+from discord import app_commands
 import yfinance as yf
 
-# 監視・スクリーニング対象の銘柄リスト（東証銘柄コード + .T）
+# 監視対象銘柄リスト
 TARGET_STOCKS = [
     "7011.T", # 三菱重工業
     "4587.T", # ペプチドリーム
@@ -13,10 +13,34 @@ TARGET_STOCKS = [
     "7013.T", # IHI
 ]
 
-# GitHubのSecretからWebhook URLを取得
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
-def check_stocks():
+class StockBot(discord.Client):
+    def __init__(self):
+        super().__init__(intents=discord.Intents.default())
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        # スラッシュコマンドをDiscordサーバーに同期
+        await self.tree.sync()
+
+client = StockBot()
+
+@client.tree.command(name="screen", description="条件を指定して株価スクリーニングを実行します")
+@app_commands.describe(
+    per="PERの上限（例: 20.0）",
+    pbr="PBRの上限（例: 1.5）",
+    roe="ROEの下限%（例: 8.0）"
+)
+async def screen(
+    interaction: discord.Interaction, 
+    per: float = 15.0, 
+    pbr: float = 1.0, 
+    roe: float = 10.0
+):
+    # 処理に数秒かかるため、応答を保留状態にする
+    await interaction.response.defer()
+
     matched_stocks = []
 
     for code in TARGET_STOCKS:
@@ -25,46 +49,37 @@ def check_stocks():
             info = ticker.info
 
             name = info.get("shortName", code)
-            per = info.get("trailingPE")
-            pbr = info.get("priceToBook")
-            roe = info.get("returnOnEquity")
-            if roe:
-                roe = roe * 100
+            curr_per = info.get("trailingPE")
+            curr_pbr = info.get("priceToBook")
+            curr_roe = info.get("returnOnEquity")
+            if curr_roe:
+                curr_roe = curr_roe * 100
 
-            # スクリーニング条件（PER < 15, PBR < 1.0, ROE >= 10.0）
-            if per and pbr and roe:
-                if per < 15.0 and pbr < 1.0 and roe >= 10.0:
+            if curr_per and curr_pbr and curr_roe:
+                if curr_per < per and curr_pbr < pbr and curr_roe >= roe:
                     matched_stocks.append({
                         "code": code,
                         "name": name,
-                        "per": round(per, 2),
-                        "pbr": round(pbr, 2),
-                        "roe": round(roe, 2)
+                        "per": round(curr_per, 2),
+                        "pbr": round(curr_pbr, 2),
+                        "roe": round(curr_roe, 2)
                     })
         except Exception as e:
             print(f"Error fetching {code}: {e}")
 
-    return matched_stocks
-
-def send_notification(stocks):
-    # 【条件に一致する銘柄が0件の場合の通知処理】
-    if not stocks:
-        message = "【🤖 株価・財務スクリーニング BOT】\n本日のスクリーニング結果：条件を満たす銘柄はありませんでした。"
-        payload = {"content": message}
-        requests.post(WEBHOOK_URL, json=payload)
-        print("該当なしの通知を送信しました。")
+    # 結果メッセージ作成
+    header = f"【🤖 株価スクリーニング結果】\n設定条件: PER < {per}倍 / PBR < {pbr}倍 / ROE ≥ {roe}%\n"
+    
+    if not matched_stocks:
+        await interaction.followup.send(f"{header}\n条件に一致する銘柄はありませんでした。")
         return
 
-    # 【条件に一致する銘柄がある場合の通知処理】
-    message = "【🤖 株価・財務スクリーニング BOT】\n条件を満たす注目銘柄が見つかりました！\n\n"
-    for s in stocks:
+    message = header + "\n"
+    for s in matched_stocks:
         message += f"■ {s['name']} ({s['code']})\n"
         message += f"  ・PER: {s['per']}倍 / PBR: {s['pbr']}倍 / ROE: {s['roe']}%\n\n"
 
-    payload = {"content": message}
-    requests.post(WEBHOOK_URL, json=payload)
-    print("条件一致の通知を送信しました。")
+    await interaction.followup.send(message)
 
 if __name__ == "__main__":
-    results = check_stocks()
-    send_notification(results)
+    client.run(TOKEN)
