@@ -4,7 +4,6 @@ import pandas as pd
 import yfinance as yf
 
 # 監視・スクリーニング対象の銘柄リスト（東証銘柄コード + .T）
-# 注目銘柄や気になる企業を追加・変更できます
 TARGET_STOCKS = [
     "7011.T", # 三菱重工業
     "4587.T", # ペプチドリーム
@@ -32,7 +31,7 @@ def check_stocks():
             if roe:
                 roe = roe * 100
 
-            # スクリーニング条件（PER<15, PBR<1.0, ROE>=10.0）
+            # スクリーニング条件（PER < 15, PBR < 1.0, ROE >= 10.0）
             if per and pbr and roe:
                 if per < 15.0 and pbr < 1.0 and roe >= 10.0:
                     matched_stocks.append({
@@ -48,10 +47,15 @@ def check_stocks():
     return matched_stocks
 
 def send_notification(stocks):
+    # 【条件に一致する銘柄が0件の場合の通知処理】
     if not stocks:
-        print("条件に一致する銘柄はありませんでした。")
+        message = "【🤖 株価・財務スクリーニング BOT】\n本日のスクリーニング結果：条件を満たす銘柄はありませんでした。"
+        payload = {"content": message}
+        requests.post(WEBHOOK_URL, json=payload)
+        print("該当なしの通知を送信しました。")
         return
 
+    # 【条件に一致する銘柄がある場合の通知処理】
     message = "【🤖 株価・財務スクリーニング BOT】\n条件を満たす注目銘柄が見つかりました！\n\n"
     for s in stocks:
         message += f"■ {s['name']} ({s['code']})\n"
@@ -59,7 +63,7 @@ def send_notification(stocks):
 
     payload = {"content": message}
     requests.post(WEBHOOK_URL, json=payload)
-    print("通知を送信しました。")
+    print("条件一致の通知を送信しました。")
 
 if __name__ == "__main__":
     results = check_stocks()
