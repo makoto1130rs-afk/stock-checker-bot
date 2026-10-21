@@ -1,0 +1,29 @@
+name: Stock Screening Bot
+
+on:
+  schedule:
+    # 毎週金曜日 17:00 JST（UTC 8:00）に自動実行
+    - cron: '0 8 * * 5'
+  workflow_dispatch: # GitHub画面から手動実行できるようにする設定
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@v3
+
+      - name: Python環境のセットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: ライブラリのインストール
+        run: |
+          pip install -r requirements.txt
+
+      - name: BOTの実行
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python bot.py
